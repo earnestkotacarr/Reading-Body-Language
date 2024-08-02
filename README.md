@@ -1,4 +1,4 @@
-# Real-Time Pose Estimation and Interpersonal Sentiment Analysis
+# Interpersonal Sentiment Analysis and Real-Time Pose Estimation
 
 This project demonstrates an intelligent machine capable of real-time pose estimation and sentiment analysis using video input. Utilizing TensorFlow.js and PoseNet, the system analyzes body language to calculate lean scores derived from video captured via webcam. These scores are used to infer sentiment and interaction dynamics between individuals.
 
