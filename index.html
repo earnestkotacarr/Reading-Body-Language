@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Estimation with Leaning Score</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        video {
+            display: none;
+        }
+
+        canvas {
+            margin-top: 10px;
+        }
+
+        #uploadButton,
+        #sampleRateSlider,
+        #exportButton,
+        #analyzeButton {
+            margin-top: 20px;
+        }
+
+        #logArea {
+            margin-top: 20px;
+            width: 300px;
+            height: 200px;
+        }
+
+        #chartContainer {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            width: 640px;
+        }
+
+        #chart {
+            width: 300px;
+            height: 200px;
+        }
+
+        #results {
+            margin-top: 20px;
+            width: 640px;
+        }
+    </style>
+</head>
+
+<body>
+    <video id="video" width="640" height="480" autoplay></video>
+    <canvas id="canvas" width="640" height="480"></canvas>
+    <input type="file" id="uploadButton" accept="video/*">
+    <label for="sampleRateSlider">Sample Rate (samples per second):</label>
+    <input type="range" id="sampleRateSlider" min="1" max="30" value="5">
+    <button id="exportButton">Export Data</button>
+    <button id="analyzeButton">Analyze Data</button>
+    <div id="chartContainer">
+        <textarea id="logArea" readonly></textarea>
+        <canvas id="chart"></canvas>
+    </div>
+    <div id="results"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const uploadButton = document.getElementById('uploadButton');
+        const sampleRateSlider = document.getElementById('sampleRateSlider');
+        const exportButton = document.getElementById('exportButton');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const logArea = document.getElementById('logArea');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const resultsDiv = document.getElementById('results');
+        let net;
+        let sampleRate = sampleRateSlider.value;
+        let lastSampleTime = 0;
+        let loggingEnabled = false;
+        let armRaisedFlag = false;
+
+        // Chart data
+        let chartData = {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Combined Score',
+                    borderColor: 'rgb(255, 99, 132)',
+                    fill: false,
+                    data: []
+                },
+                {
+                    label: 'Person 1 Score',
+                    borderColor: 'rgb(54, 162, 235)',
+                    fill: false,
+                    data: []
+                },
+                {
+                    label: 'Person 2 Score',
+                    borderColor: 'rgb(75, 192, 192)',
+                    fill: false,
+                    data: []
+                }
+            ]
+        };
+
+        const chart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                title: {
+                    display: true,
+                    text: 'Pose Estimation Scores Over Time'
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'second',
+                            displayFormats: {
+                                second: 'h:mm:ss a'
+                            }
+                        },
+                        ticks: {
+                            maxRotation: 0,
+                            minRotation: 0
+                        }
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        sampleRateSlider.addEventListener('input', (event) => {
+            sampleRate = event.target.value;
+        });
+
+        exportButton.addEventListener('click', exportData);
+        analyzeButton.addEventListener('click', analyzeData);
+
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    resolve(video);
+                };
+            });
+        }
+
+        function drawPoint(ctx, y, x, r, color) {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        function drawSegment([ay, ax], [by, bx], color) {
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+        }
+
+        function drawSkeleton(keypoints, minConfidence, ctx, scale = 1) {
+            const adjacentKeyPoints = posenet.getAdjacentKeyPoints(keypoints, minConfidence);
+
+            adjacentKeyPoints.forEach((keypoints) => {
+                drawSegment(
+                    [keypoints[0].position.y * scale, keypoints[0].position.x * scale],
+                    [keypoints[1].position.y * scale, keypoints[1].position.x * scale],
+                    'aqua'
+                );
+            });
+        }
+
+        function drawLines(person) {
+            const leftShoulder = person.keypoints.find(k => k.part === 'leftShoulder').position;
+            const rightShoulder = person.keypoints.find(k => k.part === 'rightShoulder').position;
+            const leftHip = person.keypoints.find(k => k.part === 'leftHip').position;
+            const rightHip = person.keypoints.find(k => k.part === 'rightHip').position;
+            const nose = person.keypoints.find(k => k.part === 'nose').position;
+
+            const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+            const centerY = (leftShoulder.y + rightShoulder.y) / 2;
+            const midHipX = (leftHip.x + rightHip.x) / 2;
+            const midHipY = (leftHip.y + rightHip.y) / 2;
+
+            const headLineX = nose.x - centerX;
+            const headLineY = nose.y - centerY;
+            const torsoLineX = midHipX - centerX;
+            const torsoLineY = midHipY - centerY;
+
+            const avgLineX = (headLineX + torsoLineX) / 2;
+            const avgLineY = (headLineY + torsoLineY) / 2;
+
+            const avgLineLength = Math.sqrt(avgLineX * avgLineX + avgLineY * avgLineY);
+            const extendedLineLength = Math.max(avgLineLength * 2, canvas.height); // Extend the line to cover the body
+
+            const endX = centerX + (avgLineX / avgLineLength) * extendedLineLength;
+            const endY = centerY + (avgLineY / avgLineLength) * extendedLineLength;
+
+            const startX = centerX - (avgLineX / avgLineLength) * extendedLineLength;
+            const startY = centerY - (avgLineY / avgLineLength) * extendedLineLength;
+
+            drawSegment([startY, startX], [endY, endX], 'green');
+
+            return { centerX, centerY, avgLineX, avgLineY };
+        }
+
+        function calculateLeaningScore(person1, person2) {
+            const score1 = calculateIndividualScore(person1);
+            const score2 = calculateIndividualScore(person2);
+            const combinedScore = Math.abs(score1 - score2);
+            return { score1, score2, combinedScore };
+        }
+
+        function calculateIndividualScore(person) {
+            const leftShoulder = person.keypoints.find(k => k.part === 'leftShoulder').position;
+            const rightShoulder = person.keypoints.find(k => k.part === 'rightShoulder').position;
+            const leftHip = person.keypoints.find(k => k.part === 'leftHip').position;
+            const rightHip = person.keypoints.find(k => k.part === 'rightHip').position;
+            const nose = person.keypoints.find(k => k.part === 'nose').position;
+
+            const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+            const centerY = (leftShoulder.y + rightShoulder.y) / 2;
+            const midHipX = (leftHip.x + rightHip.x) / 2;
+            const midHipY = (leftHip.y + rightHip.y) / 2;
+
+            const headLineX = nose.x - centerX;
+            const headLineY = nose.y - centerY;
+            const torsoLineX = midHipX - centerX;
+            const torsoLineY = midHipY - centerY;
+
+            const avgLineX = (headLineX + torsoLineX) / 2;
+            const avgLineY = (headLineY + torsoLineY) / 2;
+
+            const leaningAngle = Math.atan2(avgLineY, avgLineX);
+            return leaningAngle * (180 / Math.PI); // Convert to degrees
+        }
+
+        function checkArmsRaised(person) {
+            const leftWrist = person.keypoints.find(k => k.part === 'leftWrist').position;
+            const rightWrist = person.keypoints.find(k => k.part === 'rightWrist').position;
+            const nose = person.keypoints.find(k => k.part === 'nose').position;
+
+            return (leftWrist.y < nose.y) || (rightWrist.y < nose.y);
+        }
+
+        async function runPoseEstimation() {
+            net = await posenet.load();
+            await setupCamera();
+            video.play();
+            detectPose();
+        }
+
+        function detectPose() {
+            const now = Date.now();
+            net.estimateMultiplePoses(video, {
+                flipHorizontal: false,
+                maxDetections: 2,
+                scoreThreshold: 0.6,
+                nmsRadius: 20
+            }).then((poses) => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                poses.forEach((person, i) => {
+                    drawSkeleton(person.keypoints, 0.5, ctx);
+                    const { centerX, centerY, avgLineX, avgLineY } = drawLines(person);
+                    ctx.fillText(`Person ${i + 1} Leaning Angle: ${calculateIndividualScore(person).toFixed(2)}`, centerX, centerY - 10);
+
+                    if (checkArmsRaised(person)) {
+                        if (!armRaisedFlag) {
+                            loggingEnabled = !loggingEnabled;
+                            logArea.value += `Logging ${loggingEnabled ? 'enabled' : 'disabled'} at ${new Date().toLocaleTimeString()}\n`;
+                            armRaisedFlag = true;
+                        }
+                    } else {
+                        armRaisedFlag = false;
+                    }
+                });
+
+                if (loggingEnabled && poses.length === 2 && now - lastSampleTime >= 1000 / sampleRate) {
+                    const { score1, score2, combinedScore } = calculateLeaningScore(poses[0], poses[1]);
+                    const timestamp = new Date().toLocaleTimeString();
+                    logArea.value += `${timestamp} - Combined Leaning Score: ${combinedScore.toFixed(2)}, Person 1 Score: ${score1.toFixed(2)}, Person 2 Score: ${score2.toFixed(2)}\n`;
+                    logArea.scrollTop = logArea.scrollHeight; // Scroll to the bottom
+
+                    // Update chart data
+                    const currentTime = new Date();
+                    chartData.labels.push(currentTime);
+                    chartData.datasets[0].data.push(combinedScore);
+                    chartData.datasets[1].data.push(score1);
+                    chartData.datasets[2].data.push(score2);
+
+                    // Remove data older than one minute
+                    const oneMinuteAgo = new Date(currentTime.getTime() - 60000);
+                    while (chartData.labels[0] < oneMinuteAgo) {
+                        chartData.labels.shift();
+                        chartData.datasets[0].data.shift();
+                        chartData.datasets[1].data.shift();
+                        chartData.datasets[2].data.shift();
+                    }
+
+                    chart.update();
+
+                    lastSampleTime = now;
+                }
+            });
+
+            requestAnimationFrame(detectPose);
+        }
+
+        function handleVideoUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                video.srcObject = null;
+                video.src = url;
+                video.load();
+                video.play();
+                detectPose();
+            }
+        }
+
+        function exportData() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Timestamp,Combined Score,Person 1 Score,Person 2 Score\n";
+
+            for (let i = 0; i < chartData.labels.length; i++) {
+                const row = [
+                    chartData.labels[i].toISOString(),
+                    chartData.datasets[0].data[i],
+                    chartData.datasets[1].data[i],
+                    chartData.datasets[2].data[i]
+                ].join(",");
+                csvContent += row + "\n";
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "pose_estimation_data.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function smoothData(data, windowSize) {
+            let smoothed = [];
+            for (let i = 0; i < data.length; i++) {
+                let start = Math.max(0, i - windowSize);
+                let end = i + 1;
+                let window = data.slice(start, end);
+                let sum = window.reduce((acc, val) => acc + val, 0);
+                smoothed.push(sum / window.length);
+            }
+            return smoothed;
+        }
+
+        function analyzeData() {
+            const threshold = 5; // Define a threshold for significant changes
+            const windowSize = 5; // Define the window size for smoothing
+
+            // Smooth the data
+            const smoothedCombined = smoothData(chartData.datasets[0].data, windowSize);
+            const smoothedPerson1 = smoothData(chartData.datasets[1].data, windowSize);
+            const smoothedPerson2 = smoothData(chartData.datasets[2].data, windowSize);
+
+            let events = [];
+
+            for (let i = 1; i < chartData.labels.length; i++) {
+                let timestamp = chartData.labels[i];
+                let combinedDiff = Math.abs(smoothedCombined[i] - smoothedCombined[i - 1]);
+                let person1Diff = Math.abs(smoothedPerson1[i] - smoothedPerson1[i - 1]);
+                let person2Diff = Math.abs(smoothedPerson2[i] - smoothedPerson2[i - 1]);
+
+                if (combinedDiff > threshold || person1Diff > threshold || person2Diff > threshold) {
+                    events.push({
+                        timestamp: timestamp.toLocaleTimeString(),
+                        combinedDiff: combinedDiff.toFixed(2),
+                        person1Diff: person1Diff.toFixed(2),
+                        person2Diff: person2Diff.toFixed(2),
+                        magnitude: Math.max(combinedDiff, person1Diff, person2Diff)
+                    });
+                }
+            }
+
+            displayResults(events);
+        }
+
+        function displayResults(events) {
+            resultsDiv.innerHTML = "<h3>Detected Events:</h3><ul>";
+            events.forEach(event => {
+                const fontSize = 12 + event.magnitude * 2; // Scale the font size based on event magnitude
+                resultsDiv.innerHTML += `<li style="font-size:${fontSize}px;">Timestamp: ${event.timestamp}, Combined Diff: ${event.combinedDiff}, Person 1 Diff: ${event.person1Diff}, Person 2 Diff: ${event.person2Diff}</li>`;
+            });
+            resultsDiv.innerHTML += "</ul>";
+        }
+
+        uploadButton.addEventListener('change', handleVideoUpload);
+        runPoseEstimation();
+
+    </script>
+
+
+</body>
+
+</html>
