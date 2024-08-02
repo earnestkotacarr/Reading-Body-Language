@@ -26,11 +26,11 @@ The project showcases real-time pose estimation and sentiment analysis from vide
 
 1. **Clone the Repository:**
    ```sh
-   git clone https://github.com/yourusername/pose-estimation-sentiment-analysis.git
+   https://github.com/earnestkotacarr/Reading-Body-Language.git
 
  2. Navigate to the Project Directory:
 
-cd pose-estimation-sentiment-analysis
+cd Reading-Body-Language
 
 
  3. Open the index.html File in Your Browser:
