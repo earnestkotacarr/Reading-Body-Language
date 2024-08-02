@@ -29,11 +29,10 @@ The project showcases real-time pose estimation and sentiment analysis from vide
    https://github.com/earnestkotacarr/Reading-Body-Language.git
    ```
 
- 2. Navigate to the Project Directory:
-
-```sh
-cd Reading-Body-Language
-```
+2. Navigate to the Project Directory:
+   ```sh
+   cd Reading-Body-Language
+   ```
 
  3. Open the index.html File in Your Browser:
  • Simply open the index.html file in your preferred web browser to start the demo.
