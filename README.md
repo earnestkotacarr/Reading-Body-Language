@@ -35,21 +35,21 @@ The project showcases real-time pose estimation and sentiment analysis from vide
    ```
 
  3. Open the index.html File in Your Browser:
-- **Simply open the index.html file in your preferred web browser to start the demo.
-- **The system will request access to your webcam to capture real-time video input.
-- **Once the webcam is working raise your hand above your head twice to get the data recording started. 
+- Simply open the index.html file in your preferred web browser to start the demo.
+- The system will request access to your webcam to capture real-time video input.
+- Once the webcam is working raise your hand above your head twice to get the data recording started. 
 
 
 Future Enhancements
 
-- **Unsupervised Learning for Sentiment Analysis:
-- **Integrate advanced unsupervised learning techniques such as K-Means clustering or DBSCAN for more sophisticated event detection and sentiment analysis.
-- **Training on Diverse Video Inputs:
-- **Develop a training process using diverse video inputs, including interview videos, to enhance the system’s ability to analyze different forms of body language and interpersonal dynamics.
-- **Support for Uploaded Video Files:
-- **Extend the system to support analyzing uploaded video files, allowing for retrospective sentiment analysis and broader application scopes.
-- **Application Development:
-- **Adapt the system for specific applications such as interview analysis, virtual meetings, and social interaction studies, where understanding participant sentiment and engagement is crucial.
+- Unsupervised Learning for Sentiment Analysis:
+- Integrate advanced unsupervised learning techniques such as K-Means clustering or DBSCAN for more sophisticated event detection and sentiment analysis.
+- Training on Diverse Video Inputs:
+- Develop a training process using diverse video inputs, including interview videos, to enhance the system’s ability to analyze different forms of body language and interpersonal dynamics.
+- Support for Uploaded Video Files:
+- Extend the system to support analyzing uploaded video files, allowing for retrospective sentiment analysis and broader application scopes.
+- Application Development:
+- Adapt the system for specific applications such as interview analysis, virtual meetings, and social interaction studies, where understanding participant sentiment and engagement is crucial.
 
 Contributing
 
