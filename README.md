@@ -37,6 +37,8 @@ The project showcases real-time pose estimation and sentiment analysis from vide
  3. Open the index.html File in Your Browser:
  • Simply open the index.html file in your preferred web browser to start the demo.
  • The system will request access to your webcam to capture real-time video input.
+ • Once the webcam is working raise your hand above your head twice to get the data recording started. 
+
 
 Future Enhancements
 
